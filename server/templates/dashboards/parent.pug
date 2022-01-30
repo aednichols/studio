@@ -1,0 +1,36 @@
+extends _layout
+
+block vars
+  - var title = __('Parent Dashboard')
+  - var styles = ['/dashboard.css']
+  - var scripts = ['/dashboard.js']
+
+block main
+  .container
+    h1
+      img.avatar(src=user.avatar(200) width=100 height=100)
+      | #{user.fullName}
+      span.subtitle= __('Parent Dashboard')
+
+    .row.padded
+      .dashboard-body.grow
+        block dashboard-body
+          +flash(messages)
+          if studentData.length
+            for student in studentData
+              h2= student.data.fullName
+              if student.courses.length
+                for course in student.courses
+                  +course(course, student.progress[course])
+              else
+                .no-courses
+                  x-icon(name="tools-2" size=40)
+                  | #{__('$0 has not started any courses.', student.data.shortName)}
+          else
+            .empty-dashboard
+              x-icon(name="tools-2" size=120)
+              p= __('No students are linked to your account yet.')
+
+      .dashboard-sidebar: .sidebar-wrap
+
+    include _footer

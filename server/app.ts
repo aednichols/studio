@@ -43,6 +43,7 @@ declare global {
 declare module 'express-session' {
   interface SessionData {
     auth?: {user?: string};
+    pending?: {birthday?: number, type?: 'student'|'teacher'|'parent', classCode?: string};
   }
 }
 

@@ -8,11 +8,12 @@ import express from 'express';
 const crypto = require('crypto');
 
 import {MathigonStudioApp} from './app';
-import {User, UserDocument} from './models/user';
+import {Classroom} from './models/classroom';
+import {User, USER_TYPES, UserDocument} from './models/user';
 import {Progress} from './models/progress';
-import {CONFIG, loadData, pastDate} from './utilities/utilities';
-import {sendChangeEmailConfirmation, sendEmail, sendPasswordChangedEmail, sendPasswordResetEmail, sendWelcomeEmail} from './utilities/emails';
-import {checkBirthday, normalizeEmail, sanitizeString} from './utilities/validate';
+import {age, CONFIG, loadData, pastDate} from './utilities/utilities';
+import {sendChangeEmailConfirmation, sendClassCodeAddedEmail, sendEmail, sendGuardianConsentEmail, sendPasswordChangedEmail, sendPasswordResetEmail, sendWelcomeEmail} from './utilities/emails';
+import {checkBirthday, isClassCode, normalizeEmail, normalizeUsername, sanitizeString} from './utilities/validate';
 import {oAuthCallback, oAuthLogin} from './utilities/oauth';
 
 
@@ -29,33 +30,81 @@ async function signup(req: express.Request) {
   const email = normalizeEmail(req.body.email);
   if (!email) return {error: 'invalidEmail'};
 
-  const birthday = checkBirthday(req.body.birthday);
-  if (!birthday) return {error: 'invalidBirthday'};
+  const isStudent = req.body.type === 'student';
+  const classCode = isStudent ? req.body.code : undefined;
+  const type = USER_TYPES.includes(req.body.type) ? req.body.type : 'student';
+
+  const birthday = isStudent ? checkBirthday(req.body.birthday) : undefined;
+  if (isStudent && !birthday) return {error: 'invalidBirthday'};
 
   const password = req.body.password;
   if (password.length < 4) return {error: 'passwordLength'};
 
-  if (!req.body.policies) return {error: 'acceptPolicies'};
+  const isRestricted = isStudent ? !classCode && age(birthday!) < 13 : false;
+  const country = COUNTRY_CODES.includes(req.body.country) ? req.body.country : req.country;
 
-  const existingUser = await User.lookup(email);
+  const username = isRestricted ? normalizeUsername(req.body.username) : undefined;
+  if (isRestricted && !username) return {error: 'invalidUsername'};
+
+  const existingUser = await User.lookup(isRestricted ? username! : email);
   if (existingUser) return {error: 'accountExists', redirect: '/login'};
 
-  const user = new User({type: 'student', email, birthday, password, acceptedPolicies: true});
-  user.firstName = sanitizeString(req.body.first);
-  user.lastName = sanitizeString(req.body.last);
-  user.country = COUNTRY_CODES.includes(req.body.country) ? req.body.country : req.country;
-  user.emailVerificationToken = crypto.randomBytes(16).toString('hex');
+  const user = new User({type, country, birthday, password, acceptedPolicies: true});
+  const token = crypto.randomBytes(16).toString('hex');
 
-  if (!user.firstName || !user.lastName) return {error: 'invalidName'};
+  if (isRestricted) {
+    user.isRestricted = true;
+    user.username = username;
+    user.guardianEmail = email;
+    user.guardianConsentToken = token;
+    sendGuardianConsentEmail(user);  // async
+
+  } else {
+    if (!req.body.policies && !classCode) return {error: 'acceptPolicies'};
+
+    user.firstName = sanitizeString(req.body.first);
+    user.lastName = sanitizeString(req.body.last);
+    if (!user.firstName || !user.lastName) return {error: 'invalidName'};
+
+    user.emailVerificationToken = token;
+    user.email = email;
+    user.school = type === 'teacher' ? sanitizeString(req.body.school) : undefined;
+
+    if (type !== 'student') await Classroom.make('Default Class', user).save();
+    sendWelcomeEmail(user);  // async
+  }
 
   await user.save();
 
   // Copy course data from temporary user to new user account.
   if (req.tmpUser) await Progress.updateMany({userId: req.tmpUser}, {userId: user.id}).exec();
 
-  sendWelcomeEmail(user);  // async
+  return {user, success: isRestricted ? 'guardianWelcome' : 'welcome', params: [CONFIG.siteName]};
+}
 
-  return {user, success: 'welcome'};
+async function validateInput(req: express.Request) {
+  if (req.query.email) {
+    const email = normalizeEmail(req.query.email.toString());
+    if (!email) return 'invalid';
+    const existing = await User.findOne({email});
+    return existing ? 'duplicate' : '';
+  }
+
+  if (req.query.username) {
+    const username = normalizeUsername(req.query.username.toString());
+    if (!username) return 'invalid';
+    const existing = await User.findOne({username});
+    return existing ? 'duplicate' : '';
+  }
+
+  if (req.query.classcode) {
+    const code = req.query.classcode.toString();
+    if (!isClassCode(code)) return 'invalid';
+    const classroom = await Classroom.lookup(code);
+    return classroom ? '' : 'invalid';
+  }
+
+  return '';
 }
 
 
@@ -66,7 +115,7 @@ async function login(req: express.Request) {
   if (!req.body.email || !req.body.password) return {error: 'missingParameters'};
 
   const user = await User.lookup(req.body.email);
-  if (!user || !user.checkPassword(req.body.password.trim())) return {error: 'invalidLogin'};
+  if (!user || !user.checkPassword(req.body.password)) return {error: 'invalidLogin'};
 
   return {user};
 }
@@ -86,12 +135,34 @@ async function confirmEmail(req: express.Request) {
 async function resendVerificationEmail(req: express.Request) {
   if (!req.user) return {error: 'unauthenticated', errorCode: 401};
 
+  if (req.user.isRestricted && req.user.guardianConsentToken) {
+    await sendGuardianConsentEmail(req.user);
+    return {success: 'guardianConsentEmailSent'};
+  }
+
   if (req.user.email && req.user.emailVerificationToken) {
     await sendWelcomeEmail(req.user);
     return {success: 'verificationEmailSent'};
   }
 
   return {error: 'unknown'};
+}
+
+async function giveGuardianConsent(req: express.Request) {
+  if (!req.params.token) return {error: 'missingParameters'};
+
+  const child = await User.findOne({guardianConsentToken: req.params.token});
+  if (!child) return {error: 'consentError'};
+
+  // Add the child to this parent's default class.
+  const parent = await User.findOne({email: child.guardianEmail});
+  if (child.guardianConsentToken && parent?.type === 'parent') {
+    await Classroom.updateOne({admin: parent.id}, {$push: {students: child.id}});
+  }
+
+  child.guardianConsentToken = undefined;
+  await child.save();
+  return {child, parent};
 }
 
 
@@ -106,19 +177,21 @@ async function acceptPolicies(req: express.Request) {
 
 async function updateProfile(req: express.Request) {
   if (!req.user) return {error: 'unauthenticated', errorCode: 401, redirect: '/login'};
+  if (req.user.isRestricted) return {error: 'cantUpdateRestricted'};
 
   req.user.firstName = sanitizeString(req.body.first);
   req.user.lastName = sanitizeString(req.body.last);
   if (!req.user.firstName || !req.user.lastName) return {error: 'invalidName'};
 
   if (req.body.country && COUNTRY_CODES.includes(req.body.country)) req.user.country = req.body.country;
+  if (req.user.type === 'teacher') req.user.school = sanitizeString(req.body.school);
 
   if (req.body.email && req.body.email !== req.user.email) {
     if (!req.user.password) return {error: 'cantChangeEmail'};
     const email = normalizeEmail(req.body.email);
     if (!email) return {error: 'invalidEmail'};
     if (await User.lookup(email)) return {error: 'accountExists'};
-    req.user.previousEmails.push(req.user.email);
+    req.user.previousEmails.push(req.user.email!);
     req.user.email = email;
     req.user.emailVerificationToken = crypto.randomBytes(16).toString('hex');
     sendChangeEmailConfirmation(req.user);  // async
@@ -131,6 +204,7 @@ async function updateProfile(req: express.Request) {
 async function updatePassword(req: express.Request) {
   if (!req.user) return {error: 'unauthenticated', errorCode: 401, redirect: '/login'};
   if (req.user.emailVerificationToken) return {error: 'passwordUnverifiedEmail'};
+  if (req.user.isRestricted && req.user.guardianConsentToken) return {error: 'passwordNoGuardianConsent'};
 
   if (!req.user.checkPassword(req.body.oldpassword)) return {error: 'wrongPassword'};
 
@@ -140,6 +214,40 @@ async function updatePassword(req: express.Request) {
   req.user.password = newPassword;
   await req.user.save();
   return {success: 'passwordChanged'};
+}
+
+async function switchAccountType(req: express.Request) {
+  if (!req.user) return {error: 'unauthenticated', errorCode: 401, redirect: '/login'};
+
+  const type = req.query.type;
+  if (req.user.type === type) return {error: 'unknown'};
+  if (req.user.emailVerificationToken) return {error: 'unknown'};
+
+  // TODO Upgrade restricted student accounts to full student accounts.
+  if (req.user.isRestricted) return {error: 'unknown'};
+
+  // Change a teacher/parent account to a student account, and delete classes
+  if (type === 'student') {
+    const classrooms = await Classroom.find({admin: req.user.id}).exec();
+    if (classrooms.some(c => c.students.length)) return {error: 'downgradeError'};
+    await Classroom.deleteMany({admin: req.user.id}).exec();
+    await Classroom.updateMany({teachers: req.user.id}, {$pull: {teachers: req.user.id}}).exec();
+    req.user.type = type;
+    req.user.guardianEmail = req.user.guardianConsentToken = undefined;
+    await req.user.save();
+    return {success: 'downgradeAccount'};
+  }
+
+  // Upgrade student accounts to teacher or parent accounts.
+  if (type === 'teacher' || type === 'parent') {
+    await Classroom.updateMany({students: req.user.id}, {$pull: {students: req.user.id}}).exec();
+    req.user.type = type;
+    await req.user.save();
+    await Classroom.make('Default Class', req.user).save();
+    return {success: 'upgradeAccount', params: [type]};
+  }
+
+  return {error: 'unknown'};
 }
 
 async function deleteAccount(req: express.Request, toDelete = true) {
@@ -158,6 +266,7 @@ async function requestPasswordResetEmail(req: express.Request) {
   const user = await User.lookup(req.body.email);
 
   if (!user) return {error: 'accountNotFound'};
+  if (user.isRestricted && user.guardianConsentToken) return {error: 'passwordNoGuardianConsent'};
   if (user.emailVerificationToken) return {error: 'passwordUnverifiedEmail'};
 
   const buffer = await crypto.randomBytes(16);
@@ -166,7 +275,7 @@ async function requestPasswordResetEmail(req: express.Request) {
 
   await user.save();
   await sendPasswordResetEmail(user, user.passwordResetToken!);
-  return {success: 'emailSent', params: [user.email]};
+  return {success: 'emailSent', params: [user.email || user.guardianEmail!]};
 }
 
 async function checkResetToken(req: express.Request) {
@@ -293,9 +402,17 @@ export default function setupAuthEndpoints(app: MathigonStudioApp) {
     redirect(req, res, response, '/dashboard', '/signup');
   });
 
+  app.get('/validate', async (req, res) => res.send(await validateInput(req)));
+
   app.get('/confirm/:id/:token', async (req, res) => {
     const response = await confirmEmail(req);
     redirect(req, res, response, '/dashboard', '/login');
+  });
+
+  app.get('/consent/:token', async (req, res) => {
+    const response = await giveGuardianConsent(req);
+    if (response.error) return redirect(req, res, response, '/signup');
+    res.render('accounts/consent', response);
   });
 
   app.get('/forgot', (req, res) => {
@@ -334,12 +451,17 @@ export default function setupAuthEndpoints(app: MathigonStudioApp) {
     redirect(req, res, response, '/profile');
   });
 
-  app.get('/profile/delete', async (req, res) => {
+  app.get('/profile/upgrade', async (req, res) => {
+    const response = await switchAccountType(req);
+    redirect(req, res, response, '/dashboard', '/settings');
+  });
+
+  app.post('/profile/delete', async (req, res) => {
     const response = await deleteAccount(req, true);
     redirect(req, res, response, '/profile', '/profile');
   });
 
-  app.get('/profile/undelete', async (req, res) => {
+  app.post('/profile/undelete', async (req, res) => {
     const response = await deleteAccount(req, false);
     redirect(req, res, response, '/profile', '/profile');
   });
