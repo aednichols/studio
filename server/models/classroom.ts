@@ -49,6 +49,57 @@ ClassroomSchema.methods.getStudents = async function() {
 };
 
 ClassroomSchema.methods.getDashboardData = async function(this: ClassroomDocument) {
+  const students = await this.getStudents();
+  const count = students.length;
+
+  const stats = await Promise.all(students.map(s => CourseAnalytics.getLastWeekStats(s.id)));
+  const progress = await Promise.all(students.map(s => Progress.getUserData(s.id)));
+
+  /* const courseIds = allCourses.map(c => c.id);
+
+  function getProgressMap(courses, studentProgress) {
+    const data = {};
+    for (const course of courses) {
+      data[course.id] = {total: 100 * studentProgress[course.id]?.getProgress() || 0};
+      for (const section of course.sections) {
+        data[course.id][section.id] = 100 * studentProgress[course.id]?.getSectionProgress(section) || 0;
+      }
+    }
+    return data;
+  }
+
+  // Returns all courses which a student has attempted, in order of recency.
+  function recentCourseIds(progressData, hideCompleted = false) {
+    return Object.values(progressData)
+      .filter(data => {
+        const p = data.getProgress();
+        return p > 0 && (!hideCompleted || p < 100);
+      })
+      .sort((p, q) => q.updatedAt - p.updatedAt)
+      .map(p => p._course);
+  }
+
+  const studentData = students.map((s, i) => ({
+    avatar: s.avatar(),
+    name: s.fullName,
+    id: s.id,
+    minutes: stats[i].minutes,
+    courses: recentCourseIds(progress[i]).filter(c => courseIds.includes(c)),
+    progress: getProgressMap(allCourses, progress[i])
+  }));
+
+  const courseData = allCourses.map(c => ({
+    id: c.id, title: c.title, color: c.color, icon: c.icon || c.hero,
+    progress: total(studentData.map(s => s.progress[c.id].total)) / count,
+    sections: c.sections.map(s => ({
+      id: s.id, title: s.title, locked: s.locked,
+      progress: s.locked ? 0 : total(studentData.map(q => q.progress[c.id][s.id])) / count
+    }))
+  }));
+  courseData.sort((a, b) => b.progress - a.progress);
+
+  return {studentData, courseData}; */
+  return {stats, progress, count};
 };
 
 ClassroomSchema.statics.make = async function(title: string, admin: UserDocument) {

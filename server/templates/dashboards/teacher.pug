@@ -14,6 +14,17 @@ block main
 
     +flash(messages)
 
+    //- h2.text-center= __('Your classes')
+    - var colors = ['c-red', 'c-blue', 'c-green', 'c-purple', 'c-yellow', 'c-teal', 'c-orange', 'c-lime']
+    .row.padded-thin.class-grid
+      for c, index in classes
+        a.class-panel(href=`/dashboard/${c.code}` class=(colors[index % 8]))
+          h3= c.title
+          p Class code: #{c.code}
+          - var size = students[index].length
+          p= !size ? __('No students') : size === 1 ? __('One student') : __('$0 students', size)
+      button.new-class(data-modal="new-class") #[x-icon(name="books-3" size=120)] #{__('Create new class')}
+
     include _footer
 
   +modal('new-class')

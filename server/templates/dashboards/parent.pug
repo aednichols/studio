@@ -32,5 +32,31 @@ block main
               p= __('No students are linked to your account yet.')
 
       .dashboard-sidebar: .sidebar-wrap
+        .sidebar-panel
+          h2 #{__('Class code')}: #[strong= user.classesManaged[0]]
+        .sidebar-panel
+          h2= __('Linked Students')
+          for student in studentData
+            .class-row
+              img(src=student.data.avatar() alt="Avatar" width=40 height=40)
+              .grow
+                h3= student.data.name()
+                if student.data.isRestricted
+                  .small Restricted
+              if student.data.canRemoveClassCode()
+                button(data-modal=`remove-${student.data._id}`): x-icon(name="delete")
+          p(class=(studentData.length ? 'small' : ''))!= __('Your children should use your unique code $0 when signing up for Mathigon. If they already have an account, they can click “Add Class Code” in the sidebar of their student dashboard.', `<strong>${user.classesManaged[0]}</strong>`)
+        +socialPanel()
+
+      for student in studentData
+        if student.data.canRemoveClassCode()
+          x-modal(id=`remove-${student.data._id}` style="width: 440px")
+            button.close: x-icon(name="close")
+            .modal-body
+              h2 #[x-icon(name="delete" size=32)] #{__('Remove Student')}
+              form.form-large(action=`/dashboard/remove/${student.data._id}` method='POST')
+                p!= __('Are you sure you want to remove $0 from your parent dashboard? To revert this action, they will have to add your class code again on their student dashboard.', `<strong>${student.data.name()}</strong>`)
+                input(type="hidden" name="_csrf" value=_csrf)
+                p.btn-row: button.btn.btn-red(type='submit')= __('Remove')
 
     include _footer

@@ -43,6 +43,27 @@ block main
                 h3.m-blue= stats.minutes
                 .small= __('Minutes')
 
+        if config.accounts.teachers || config.accounts.parents
+          .sidebar-panel
+            h2= __('Teachers and Parents')
+            for t in teachers
+              .class-row
+                img(src=t.avatar() alt="Avatar" width=40 height=40)
+                div
+                  h3= t.name()
+                  .small= t.type === 'parent' ? __('Parent') : t.school || __('Teacher')
+            p(class=(teachers.length ? 'small' : '')) #{__('Parent and teacher accounts have access to all your progress data.')} #[a(data-modal="add-class-code") #{__('Add new class code')}]
+          +modal('add-class-code')(style="width: 440px")
+            h2 #[x-icon(name="teacher" size=32)] #{__('Add Class Code')}
+            form.form-large(action="/dashboard/add" method="POST")
+              p= __('Adding a class code will give your teacher or parent access to your progress data on Mathigon.')
+              input(type="hidden" name="_csrf" value=_csrf)
+              label.form-field
+                input(name="code" type="text" placeholder="Class Code" v-model="classCode" :class="{invalid: invalid, dirty: classCode}" required)
+                span(class="placeholder")= __('Class code')
+                p.form-error(v-if="classCode && invalid")= __('This class code is not valid.')
+              p.btn-row: button.btn.btn-red(type="submit" :disabled="!classCode || !!invalid")= __('Join Class')
+
         .sidebar-panel
           h2= __('Connect with $0', config.siteName)
           .connect.row

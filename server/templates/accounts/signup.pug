@@ -52,3 +52,105 @@ block main
       .btn-row: button.btn.btn-red.btn-large(type='submit')= __('Create Account')
 
     include ../_footer
+
+
+
+
+mixin social()
+  .btn-row&attributes(attributes)
+    a.btn.btn-large.google(:href="'/auth/google?type='+type+'&birthday='+birthday+'&classCode='+classCode")
+      x-icon(name="google" size=28)
+      | Google
+    //- a.btn.btn-large.facebook(:href="\'/auth/facebook?type='+type+'&birthday='+birthday+'&classCode='+classCode")
+      x-icon(name="facebook" size=28)
+      | Facebook
+    a.btn.btn-large.microsoft(:href="\'/auth/microsoft?type='+type+'&birthday='+birthday+'&classCode='+classCode")
+      x-icon(name="microsoft" size=28)
+      | Microsoft
+    button.btn.btn-red.btn-large(@click="step = 2")
+      x-icon(name="email" size=28)
+      | #{__('Email + Password')}
+
+mixin signupForm(isMobile)
+  .signup-box(v-cloak)
+    .signup-tabs
+      button.signup-tab(:class="{active: type === 'student'}" @click="type = 'student'")
+        x-icon(name="bag" size=44)
+        | #{__('Students')}
+      button.signup-tab(:class="{active: type === 'teacher'}" @click="type = 'teacher'")
+        x-icon(name="mortarboard" size=44)
+        | #{__('Teachers')}
+      button.signup-tab(:class="{active: type === 'parent'}" @click="type = 'parent'")
+        x-icon(name="owl" size=44)
+        | #{__('Parents')}
+
+    .signup-body
+      .signup-step(v-if="type === 'student' && step === 1")
+        p= __('Join a world of wonder and discovery! Mathigon accounts are completely free to use. We will store your progress, personalise our content, and recommend what to learn next.')
+        .small-form
+          x-birthday(v-model="birthday" :invalid="errors.birthday")
+            p.form-error(v-if="birthday && errors.birthday")= __('This can’t be right…')
+          x-input(v-if="useClassCode" v-model="classCode" @type="checkClassCode($event)" placeholder="Class Code" :invalid="errors.classCode")
+            p.form-error(v-if="classCode && errors.classCode === 'invalid'")= __('This class code is not valid.')
+            p.form-hint #{__('A class code might be given to you by a teacher or parent, and consists of eight numbers or letters.')} #[button.a(@click="useClassCode = false") #{__('Don’t have one?')}]
+        if isMobile
+          .btn-row(v-if="studentCanProceed")
+            button.btn.btn-red.btn-large(@click="step = 2")= __('Continue')
+        else
+          +social()(v-if="studentCanProceed && (useClassCode || !isRestricted)")
+          .btn-row(v-if="studentCanProceed && !useClassCode && isRestricted")
+            button.btn.btn-red.btn-large(@click="step = 2")= __('Continue')
+        p.alternative
+          button.a(v-if="!useClassCode" @click="useClassCode = !useClassCode")= __('Sign up with Class Code')
+          if !isMobile
+            button.a(@click="login()")= __('Already have an account?')
+
+      if !isMobile
+        .signup-step(v-if="type !== 'student' && step === 1")
+          p(v-if="type === 'teacher'")= __('Welcome to Mathigon! Teacher accounts are completely free to use. They allow you to manage students’ accounts and view their progress data, including integration with Google Classroom.')
+          p(v-if="type === 'parent'")= __('Welcome to Mathigon! Our free parent and guardian accounts allow you to manage your children’s accounts and view their progress data.')
+          +social()
+          p.alternative: button.a(@click="login()")= __('Already have an account?')
+
+      form.signup-step.small-form(v-if="type === 'student' && isRestricted && !classCode && step === 2" method="POST")
+        input(type="hidden" name="_csrf" value=_csrf)
+        input(type="hidden" name="type" value="student")
+        input(type="hidden" name="birthday" :value="birthday")
+        x-input(name="username" v-model="username" pattern="[a-zA-Z1-9]{4,}" placeholder="Username" :invalid="errors.username")
+          p.form-error(v-if="errors.username === 'duplicate'")= __('There already exists a Mathigon account with this username.')
+          p.form-hint= __('Your username can contain letters and numbers. For security, you shouldn’t use your real name.')
+        x-input(name="email" type="email" placeholder="Guardian Email" autocomplete="email")
+          p.form-hint= __('We need to notify your parent or guardian about your account.')
+        x-password: x-icon(name="eye")
+        .btn-row: button.btn.btn-red.btn-large(type='submit')= __('Create Account')
+        p.alternative: button.a(@click="step = 1")= __('Go back')
+
+      form.signup-step(v-if=(isMobile ? "type !== 'student' || ((classCode || !isRestricted) && step === 2)" : "(type !== 'student' || classCode || !isRestricted) && step === 2") method="POST")
+        input(type="hidden" name="_csrf" value=_csrf)
+        input(type="hidden" name="type" :value="type")
+        input(type="hidden" name="code" :value="classCode" v-if="type === 'student'")
+        input(type="hidden" name="birthday" :value="birthday" v-if="type === 'student'")
+        .form-row
+          x-input(name="first" autocomplete="fname" placeholder=__("First Name"))
+          x-input(name="last" autocomplete="lname" placeholder=__("Last Name"))
+        x-input(name="email" type="email" v-model="email" placeholder=__("Email Address") autocomplete="email" :invalid="errors.email")
+          .form-error(v-if="errors.email === 'duplicate'")!= __('There already exists a Mathigon account with this email address. Please <a @click="login()">sign in</a> instead.')
+          .form-error(v-if="errors.email === 'invalid'")= __('This email address is not valid.')
+        x-password: x-icon(name="eye")
+        x-input(v-if="type === 'teacher'" name="school" placeholder=__("School Name"))
+        label.form-field
+          select(name='country' required)
+            for c in countries
+              option(value=c.id, selected=(c.id === country))= c.name
+          span.placeholder= __('Country')
+        div
+        label.form-checkbox(v-if="!isRestricted")
+          | I’ve read and accept Mathigon’s #[a(href="/policies" target="_blank") Privacy Policy] and #[a(href="/policies#terms" target="_blank") Terms of Service].
+          input(type="checkbox" name="policies" required)
+          .control
+        label.form-checkbox(v-if="!isRestricted")
+          | #{__('Send me occasional emails about new features and content.')}
+          input(type="checkbox" name="newsletter" v-model="newsletter")
+          .control
+        .btn-row: button.btn.btn-red.btn-large(type='submit')= __('Create Account')
+        p.alternative(v-if=(isMobile ? undefined : "type === 'student'")): button.a(@click="step = 1")= __('Go back')

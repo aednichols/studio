@@ -70,6 +70,13 @@ async function signup(req: express.Request) {
     user.email = email;
     user.school = type === 'teacher' ? sanitizeString(req.body.school) : undefined;
 
+    // TODO START
+    const classroom = await findClass(classCode);
+    if (classCode && !classroom) return {error: 'invalidClassCode'};
+    if (classroom) sendClassCodeAddedEmail(user, classroom); // async
+    // Add to classroom, use teacher as guardian email if restricted
+    // TODO END
+
     if (type !== 'student') await Classroom.make('Default Class', user).save();
     sendWelcomeEmail(user);  // async
   }
@@ -338,6 +345,7 @@ async function cleanupUsers() {
   const requested = await User.find({deletionRequested: {$lt: +pastDate(7)}}).exec();
   const outdated = await User.find({lastOnline: {$lt: pastDate(4 * 365)}}).exec();
 
+  // TODO Send a warning email before deleting accounts.
   for (const user of [...outdated, ...requested]) {
     await User.deleteOne({_id: user._id});
   }

@@ -74,8 +74,93 @@ block main
       x-modal#delete
         button.close: x-icon(name="close")
         .modal-body
+          // TODO Make these POST requests!
           h2 #[x-icon(name="delete" size=32)] #{__('Delete my account')}
           p= __('Are you sure that you want to delete your $0 account and all associated data?', config.siteName)
           .btn-row: a.btn.btn-red(href="/profile/delete")= __('Delete')
 
     include ../_footer
+
+
+
+
+
+
+      if user.isRestricted
+        p.text-center= __('You have a restricted account for students aged 12 years or younger.')
+        label.form-field
+          input(type='text' name='username' disabled value=user.username placeholder=__("Username"))
+          span.placeholder= __('Username')
+        label.form-field
+          input(type='text' name='birthday' disabled value=user.birthdayString() placeholder=__("Date of Birth"))
+          span.placeholder= __('Date of Birth')
+        label.form-field
+          input(type="email" name="guardianEmail" disabled value=user.guardianEmail)
+          span.placeholder= __('Guardian Email')
+          if !user.guardianConsent
+            p.form-hint #[strong.m-red #{__('Your parent or guardian has not yet approved your account.')}] They need to approve your account within #{user.consentDaysRemaining()}, using the link in the email we sent them, or we need to delete your account. #[a(href="/settings/resend") #{__('Resend verification email')}]
+      else
+        .form-row
+          label.form-field
+            input(type='text' name='first' required autocomplete="fname" placeholder=__("First Name") value=user.first)
+            span.placeholder= __('First Name')
+          label.form-field
+            input(type='text' name='last' required autocomplete="lname" placeholder=__("Last Name") value=user.last)
+            span.placeholder= __('Last Name')
+        label.form-field
+          input(type='email' name='email' required disabled=(!user.password) autocomplete="email" placeholder=__("Email") value=user.email)
+          span.placeholder= __('Email')
+          if user.emailVerificationToken
+            p.form-hint
+              strong.m-red= __('Email not verified!')
+              | #{" – "}
+              a(href="/settings/resend")= __('Resend verification email')
+        if user.birthday
+          label.form-field
+            input(type='text' name='birthday' disabled value=user.birthdayString() placeholder=__("Date of Birth"))
+            span.placeholder= __('Date of Birth')
+        if user.type === 'teacher'
+          label.form-field
+            input(type='text' name='school' value=user.school placeholder=__("School Name"))
+            span.placeholder= __('School Name')
+        label.form-field
+          select(name='country' id='country')
+            for c in countries
+              option(value=c.id selected=(c.id == user.country))= c.name
+          span.placeholder= __('Country')
+        button.btn.btn-red(type='submit')= __('Update Profile')
+
+    if user.canChangeType()
+      hr(style="margin: 2em 0")
+      h2.text-center#upgrade= __('Change Account Type')
+      .btn-row.text-center
+        if user.type === 'student'
+
+          a.btn.btn-blue.account-type(data-modal="upgrade-teacher" style="border-radius: 12px")
+            x-icon(name="mortarboard" size=60)
+            | #{__('Teacher Account')}
+          a.btn.btn-green.account-type(data-modal="upgrade-parent" style="border-radius: 12px")
+            x-icon(name="owl" size=60)
+            | #{__('Parent Account')}
+          x-modal#upgrade-teacher
+            button.close: x-icon(name="close")
+            .modal-body
+              h2 #[x-icon(name="user" size=32)] #{__('Change to Teacher Account')}
+              p= __('You currently have a student account. Changing to a teacher account will allow you to manage student accounts and track their progress.')
+              .btn-row: a.btn.btn-red(href="/settings/upgrade?type=teacher")= __('Continue')
+          x-modal#upgrade-parent
+            button.close: x-icon(name="close")
+            .modal-body
+              h2 #[x-icon(name="user" size=32)] #{__('Change to Parent Account')}
+              p= __('You currently have a student account. Changing to a parent account will allow you to manage your children’s accounts and track their progress.')
+              .btn-row: a.btn.btn-red(href="/settings/upgrade?type=parent")= __('Continue')
+        else
+          a.btn.btn-yellow.account-type(data-modal="upgrade-student" style="border-radius: 12px")
+            x-icon(name="bag" size=60)
+            | #{__('Student Account')}
+          x-modal#upgrade-student
+            button.close: x-icon(name="close")
+            .modal-body
+              h2 #[x-icon(name="user" size=32)] #{__('Change to Student Account')}
+              p= __('Are you sure that you want to change to a student account? You existing classes will be deleted and will no longer be able to manage students.')
+              .btn-row: a.btn.btn-red(href="/settings/upgrade?type=student")= __('Continue')

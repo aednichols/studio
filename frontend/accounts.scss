@@ -47,3 +47,48 @@ x-password {
     &.on { opacity: 1; }
   }
 }
+
+.signup-box {
+  max-width: 580px;
+  margin: 0 auto;
+
+  .signup-tabs { display: flex; justify-content: center; margin-bottom: 1.5em; }
+
+  .signup-tab {
+    border: 2px solid $blue;
+    text-align: center;
+    padding: 2px 0;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    width: 92px;
+
+    color: $blue;
+    fill: $blue;
+    transition: color .2s, fill .2s, background .2s;
+
+    x-icon { margin: 0 auto -4px; display: block; }
+    &:first-child { border-radius: 6px 0 0 6px; border-right: none; }
+    &:last-child { border-radius: 0 6px 6px 0;  border-left: none; }
+
+    &:hover { background: rgba($blue, 20%); }
+    &.active { background: $blue; color: white; fill: white; cursor: default; }
+  }
+
+  .signup-body { min-height: 400px; }
+  .signup-step > p { padding: 0 8px; text-align: center; }
+  .small-form { max-width: 440px; margin: 0 auto; }
+
+  .btn-row { display: flex; flex-wrap: wrap; justify-content: center; margin: 8px 0 0; }
+  .btn { display: block; min-width: 160px; margin: 8px; }
+  .alternative { text-align: center; font-size: 16px; font-weight: 600; }
+  .alternative { a, .a { display: inline-block; margin: 12px 20px 0; } }
+}
+
+.btn.account-type {
+  height: auto;
+  fill: white;
+  line-height: 1;
+  padding: 6px 20px 12px;
+  x-icon { display: block; margin: 0 auto; }
+}
